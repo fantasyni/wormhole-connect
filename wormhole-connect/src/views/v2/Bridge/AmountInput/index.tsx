@@ -1,7 +1,15 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, {
+  ComponentProps,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { makeStyles } from 'tss-react/mui';
 import { useDebounce } from 'use-debounce';
+import { usePrevious } from 'utils';
 import { useTheme } from '@mui/material';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -19,6 +27,44 @@ import { toFixedDecimals } from 'utils/balance';
 import { getMaxAmt, validateAmount } from 'utils/transferValidation';
 import type { TokenConfig } from 'config/types';
 import type { RootState } from 'store';
+
+const INPUT_DEBOUNCE = 300;
+
+const DebouncedTextField = memo(
+  ({
+    value,
+    onChange,
+    ...props
+  }: Omit<ComponentProps<typeof TextField>, 'onChange' | 'value'> & {
+    value: string;
+    onChange: (event: string) => void;
+  }) => {
+    const [innerValue, setInnerValue] = useState<string>(value);
+    const [deferredValue] = useDebounce(innerValue, INPUT_DEBOUNCE);
+    const prev = usePrevious(deferredValue);
+
+    const onInnerChange = useCallback(
+      (
+        e: Parameters<
+          NonNullable<ComponentProps<typeof TextField>['onChange']>
+        >[0],
+      ) => setInnerValue(e.target.value),
+      [],
+    );
+
+    useEffect(() => {
+      if (prev !== deferredValue && deferredValue !== value) {
+        onChange(deferredValue);
+      }
+    }, [onChange, deferredValue, prev, value]);
+
+    useEffect(() => {
+      setInnerValue(value);
+    }, [value]);
+
+    return <TextField {...props} value={innerValue} onChange={onInnerChange} />;
+  },
+);
 
 const useStyles = makeStyles()((theme) => ({
   amountContainer: {
@@ -129,21 +175,19 @@ const AmountInput = (props: Props) => {
 
   // Update token amount in both local and Redux states
   const onAmountChange = useCallback(
-    (e: any) => {
-      const { value } = e.target;
-
-      if (value === amount) {
+    (event: string) => {
+      if (event === amount) {
         return;
       }
 
       // Validation for the amount value
       const amountValidation = validateAmount(
-        value,
+        event,
         tokenBalance,
         getMaxAmt(route),
       );
 
-      dispatch(setAmount(value));
+      dispatch(setAmount(event));
       setValidationResult(amountValidation);
     },
     [amount, route, tokenBalance],
@@ -156,7 +200,7 @@ const AmountInput = (props: Props) => {
       </div>
       <Card variant="elevation">
         <CardContent className={classes.amountCardContent}>
-          <TextField
+          <DebouncedTextField
             fullWidth
             disabled={isInputDisabled}
             inputProps={{
